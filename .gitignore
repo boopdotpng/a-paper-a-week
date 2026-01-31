@@ -1,0 +1,20 @@
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.uv/
+.pytest_cache/
+
+# data and artifacts
+data/
+checkpoints/
+outputs/
+
+# notebooks
+.ipynb_checkpoints/
+
+# os
+.DS_Store
+Thumbs.db
