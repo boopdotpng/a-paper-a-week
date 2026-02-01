@@ -4,22 +4,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import datasets, transforms
 from PIL import Image
-import math
-import itertools
-import os
-import re
+import math, itertools, os, re
 
 ROOT = Path(__file__).resolve().parent
 CHECKPOINT_DIR = ROOT / "checkpoints"
 OUTPUT_DIR = ROOT / "outputs"
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"using {device}")
-if device.type == "cuda":
-  torch.backends.cudnn.benchmark = True
-  torch.backends.cuda.matmul.fp32_precision = "tf32"
-  torch.backends.cudnn.conv.fp32_precision = "tf32"
-  torch.set_float32_matmul_precision("high")
+device = torch.device("cuda")
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.matmul.fp32_precision = "tf32"
+torch.backends.cudnn.conv.fp32_precision = "tf32"
+torch.set_float32_matmul_precision("high")
 
 # Load CIFAR-10
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -29,7 +24,7 @@ train_loader = torch.utils.data.DataLoader(
   batch_size=512,
   shuffle=True,
   num_workers=4,
-  pin_memory=device.type == "cuda",
+  pin_memory=True,
   persistent_workers=True,
   prefetch_factor=4,
   drop_last=True,
@@ -153,45 +148,41 @@ def _image_from_sample(sample: torch.Tensor, scale: int = 1) -> Image.Image:
     img = img.resize((img.width * scale, img.height * scale), resample=Image.NEAREST)
   return img
 
-
 @torch.no_grad()
 def sample_heun(
   model: nn.Module,
   n_steps: int = 200,
   bs: int = 16,
-  eps: float = 1e-3,
-  use_amp: bool = False,
+  t0: float = 0.0,
+  t1: float = 1.0,
   gif_every: int | None = None,
   scale: int = 1,
-) -> tuple[torch.Tensor, list[Image.Image] | None]:
+):
   model.eval()
-  amp_dtype = torch.bfloat16 if use_amp else torch.float32
-  amp_ctx = torch.amp.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp)
-  t0, t1 = eps, 1.0
-  dt = (t1 - t0) / n_steps
-  t_steps = torch.linspace(t0, t1, n_steps, device=device, dtype=torch.float32)
+
+  amp_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+
+  t_steps = torch.linspace(t0, t1, n_steps + 1, device=device, dtype=torch.float32)
 
   x = torch.randn(bs, 3, 32, 32, device=device, dtype=torch.float32)
-  frames: list[Image.Image] | None = [] if gif_every is not None else None
+
+  frames = [] if gif_every is not None else None
   if frames is not None:
     frames.append(_image_from_sample(x[0], scale=scale))
 
   with amp_ctx:
-    for i in range(n_steps - 1):
+    for i in range(n_steps):
       ti = t_steps[i].expand(bs)
       tip1 = t_steps[i + 1].expand(bs)
+      dt = (t_steps[i + 1] - t_steps[i])
 
       v = model(x, ti)
       x_euler = x + dt * v
       v_next = model(x_euler, tip1)
       x = x + dt * 0.5 * (v + v_next)
+
       if frames is not None and (i + 1) % gif_every == 0:
         frames.append(_image_from_sample(x[0], scale=scale))
-
-    # final euler step
-    ti = t_steps[-1].expand(bs)
-    v = model(x, ti)
-    x = x + dt * v
 
   return x, frames
 
@@ -202,10 +193,7 @@ def main():
   OUTPUT_DIR.mkdir(exist_ok=True)
   model = Model().to(device, memory_format=torch.channels_last)
   optim = torch.optim.Adam(model.parameters(), lr=2e-4)
-  use_amp = device.type == "cuda"
-  amp_dtype = torch.bfloat16 if use_amp else torch.float32
-  scaler = torch.amp.GradScaler(enabled=use_amp)
-  amp_ctx = torch.amp.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp)
+  amp_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
   gif_every = 10 if "--gif" in sys.argv else None
   gif_duration_ms = 120
   gif_hold_ms = 1200
@@ -233,7 +221,7 @@ def main():
     start_step = _load_checkpoint(resume_path)
     print(f"resumed from {resume_path} @ step {start_step}")
 
-  if use_amp and not sample_only:
+  if not sample_only:
     model = torch.compile(model)
 
   if not sample_only:
@@ -256,9 +244,8 @@ def main():
         loss = F.mse_loss(v_pred, v_target)
 
       optim.zero_grad(set_to_none=True)
-      scaler.scale(loss).backward()
-      scaler.step(optim)
-      scaler.update()
+      loss.backward()
+      optim.step()
 
       if step % 100 == 0:
         print(f"loss: {loss.item():.2f}, step {step}")
@@ -273,11 +260,11 @@ def main():
       return
     _load_checkpoint(resume_path)
     print(f"loaded {resume_path} for sampling")
-    if use_amp and not hasattr(model, "_orig_mod"):
+    if not hasattr(model, "_orig_mod"):
       model = torch.compile(model)
 
   # generate samples
-  samples, frames = sample_heun(model, n_steps=200, bs=1, use_amp=use_amp, gif_every=gif_every, scale=gif_scale)
+  samples, frames = sample_heun(model, n_steps=200, bs=1, gif_every=gif_every, scale=gif_scale)
   img = _image_from_sample(samples[0], scale=gif_scale)
   output_path = OUTPUT_DIR / "samples_torch.png"
   img.save(output_path)

@@ -1,11 +1,13 @@
 # a-paper-a-week
 
+A repository of paper implementations (in PyTorch and tinygrad) across various domains.
+
 ## Week 1: Rectified Flow
 
 - [Rectified Flow README](1-rectified-flow/README.md)
 
-## Samples
+### Samples
 
-![Torch samples](1-rectified-flow/assets/samples_torch.png)
+![4x4 grid of outputs from the CIFAR model](1-rectified-flow/assets/44-grid.png)
 
-![Torch samples gif](1-rectified-flow/assets/samples_torch.gif)
+![gif of an image being generated](1-rectified-flow/assets/samples_torch.gif)
