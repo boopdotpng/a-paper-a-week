@@ -6,6 +6,10 @@ A repository of paper implementations (in PyTorch and tinygrad) across various d
 
 - [Rectified Flow README](1-rectified-flow/README.md)
 
+Notes: I think the model needs to train for a little bit longer, probably on 2 GPUs and 30,000 steps instead of 20,000. The sampling was also slightly incorrect, so at some point I'll re-train the model and replace the outputs below with nicer looking images. 
+
+Additionally, I want to try this on the AFHQ database, 
+
 ### Samples
 
 ![4x4 grid of outputs from the CIFAR model](1-rectified-flow/assets/44-grid.png)

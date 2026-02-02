@@ -16,11 +16,13 @@ torch.backends.cuda.matmul.fp32_precision = "tf32"
 torch.backends.cudnn.conv.fp32_precision = "tf32"
 torch.set_float32_matmul_precision("high")
 
-# Load CIFAR-10
+# Load CIFAR-10 (train + test = 60k images)
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 train_data = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
+test_data = datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
+all_data = torch.utils.data.ConcatDataset([train_data, test_data])
 train_loader = torch.utils.data.DataLoader(
-  train_data,
+  all_data,
   batch_size=512,
   shuffle=True,
   num_workers=4,
